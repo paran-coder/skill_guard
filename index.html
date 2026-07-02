@@ -284,8 +284,22 @@ function insertCodeComment(text, ext, fingerprint, author) {
   return lines.join("");
 }
 
+const IGNORE_NAMES = new Set([".git", "node_modules", "__pycache__", ".vscode", ".idea", "dist", "build", ".DS_Store", "Thumbs.db"]);
+
+function shouldIgnorePath(path) {
+  return path.split("/").some(part => IGNORE_NAMES.has(part));
+}
+
 function collectFiles(inputEl) {
-  return Array.from(inputEl.files).map(f => ({ file: f, path: f.webkitRelativePath || f.name }));
+  return Array.from(inputEl.files)
+    .map(f => ({ file: f, path: f.webkitRelativePath || f.name }))
+    .filter(e => !shouldIgnorePath(e.path));
+}
+
+function countIgnored(inputEl) {
+  return Array.from(inputEl.files)
+    .map(f => f.webkitRelativePath || f.name)
+    .filter(shouldIgnorePath).length;
 }
 
 function findMainSkillMd(entries) {
@@ -375,11 +389,15 @@ let insertZipName = "watermarked-skill.zip";
 
 document.getElementById("i-drop").onclick = () => document.getElementById("i-input").click();
 document.getElementById("i-input").onchange = (e) => {
+  const ignored = countIgnored(e.target);
   insertEntries = collectFiles(e.target);
   renderFileList(document.getElementById("i-filelist"), insertEntries);
   document.getElementById("i-run").disabled = insertEntries.length === 0;
   document.getElementById("i-result").style.display = "none";
   document.getElementById("i-download").style.display = "none";
+  document.getElementById("i-status").textContent = ignored > 0
+    ? `.git, node_modules 등 ${ignored}개 파일은 스킬 내용이 아니라고 판단해 제외했습니다.`
+    : "";
 };
 
 document.getElementById("i-run").onclick = async () => {
@@ -466,10 +484,14 @@ let verifyEntries = [];
 
 document.getElementById("v-drop").onclick = () => document.getElementById("v-input").click();
 document.getElementById("v-input").onchange = (e) => {
+  const ignored = countIgnored(e.target);
   verifyEntries = collectFiles(e.target);
   renderFileList(document.getElementById("v-filelist"), verifyEntries);
   document.getElementById("v-run").disabled = verifyEntries.length === 0;
   document.getElementById("v-results").innerHTML = "";
+  document.getElementById("v-status").textContent = ignored > 0
+    ? `.git, node_modules 등 ${ignored}개 파일은 검사에서 제외했습니다.`
+    : "";
 };
 
 document.getElementById("v-run").onclick = async () => {
