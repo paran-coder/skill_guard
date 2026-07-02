@@ -196,6 +196,12 @@ who created this skill"></textarea>
           <div>SKILL.md가 들어있는 폴더를 선택하세요</div>
         </div>
         <input type="file" id="i-input" webkitdirectory directory multiple style="display:none">
+        <div class="hint" style="margin:8px 0">또는</div>
+        <div class="dropzone" id="i-zip-drop">
+          <div class="big">클릭해서 .skill / .zip 파일 업로드</div>
+          <div>압축을 풀지 않고 바로 처리합니다</div>
+        </div>
+        <input type="file" id="i-zip-input" accept=".skill,.zip" style="display:none">
         <div class="filelist" id="i-filelist"></div>
       </div>
       <div class="actions">
@@ -228,6 +234,12 @@ who created this skill"></textarea>
           <div>내가 등록한 지문이 남아있는지 검사합니다</div>
         </div>
         <input type="file" id="v-input" webkitdirectory directory multiple style="display:none">
+        <div class="hint" style="margin:8px 0">또는</div>
+        <div class="dropzone" id="v-zip-drop">
+          <div class="big">클릭해서 .skill / .zip 파일 업로드</div>
+          <div>압축을 풀지 않고 바로 검사합니다</div>
+        </div>
+        <input type="file" id="v-zip-input" accept=".skill,.zip" style="display:none">
         <div class="filelist" id="v-filelist"></div>
       </div>
       <div class="actions">
@@ -300,6 +312,25 @@ function countIgnored(inputEl) {
   return Array.from(inputEl.files)
     .map(f => f.webkitRelativePath || f.name)
     .filter(shouldIgnorePath).length;
+}
+
+// .skill/.zip 파일을 풀어서 collectFiles()와 동일한 {file, path} 형태로 변환한다.
+// file 어댑터에 text()/arrayBuffer()만 구현해두면 기존 처리 로직을 그대로 재사용할 수 있다.
+async function collectFromZipFile(zipFile) {
+  const zip = await JSZip.loadAsync(zipFile);
+  const entries = [];
+  zip.forEach((relPath, zipEntry) => {
+    if (!zipEntry.dir) entries.push({ relPath, zipEntry });
+  });
+  return entries
+    .filter(e => !shouldIgnorePath(e.relPath))
+    .map(e => ({
+      path: e.relPath,
+      file: {
+        text: () => e.zipEntry.async("string"),
+        arrayBuffer: () => e.zipEntry.async("arraybuffer"),
+      },
+    }));
 }
 
 function findMainSkillMd(entries) {
@@ -386,11 +417,13 @@ function updateStorageNotice() {
 let insertEntries = [];
 let insertZipBlob = null;
 let insertZipName = "watermarked-skill.zip";
+let insertOutputExt = ".zip";
 
 document.getElementById("i-drop").onclick = () => document.getElementById("i-input").click();
 document.getElementById("i-input").onchange = (e) => {
   const ignored = countIgnored(e.target);
   insertEntries = collectFiles(e.target);
+  insertOutputExt = ".zip";
   renderFileList(document.getElementById("i-filelist"), insertEntries);
   document.getElementById("i-run").disabled = insertEntries.length === 0;
   document.getElementById("i-result").style.display = "none";
@@ -398,6 +431,30 @@ document.getElementById("i-input").onchange = (e) => {
   document.getElementById("i-status").textContent = ignored > 0
     ? `.git, node_modules 등 ${ignored}개 파일은 스킬 내용이 아니라고 판단해 제외했습니다.`
     : "";
+};
+
+document.getElementById("i-zip-drop").onclick = () => document.getElementById("i-zip-input").click();
+document.getElementById("i-zip-input").onchange = async (e) => {
+  const status = document.getElementById("i-status");
+  const file = e.target.files[0];
+  if (!file) return;
+  if (typeof JSZip === "undefined") {
+    status.textContent = "오류: 압축 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하고 새로고침해주세요.";
+    return;
+  }
+  status.textContent = "압축을 푸는 중...";
+  try {
+    insertEntries = await collectFromZipFile(file);
+  } catch (err) {
+    status.textContent = "오류: .skill/.zip 파일을 여는 데 실패했습니다. 손상되지 않았는지 확인해주세요.";
+    return;
+  }
+  insertOutputExt = getExt(file.name) || ".skill";
+  renderFileList(document.getElementById("i-filelist"), insertEntries);
+  document.getElementById("i-run").disabled = insertEntries.length === 0;
+  document.getElementById("i-result").style.display = "none";
+  document.getElementById("i-download").style.display = "none";
+  status.textContent = `${insertEntries.length}개 파일을 압축 해제했습니다.`;
 };
 
 document.getElementById("i-run").onclick = async () => {
@@ -458,7 +515,7 @@ document.getElementById("i-run").onclick = async () => {
   }
 
   insertZipBlob = await zip.generateAsync({ type: "blob" });
-  insertZipName = `${skillName.replace(/[^\w가-힣-]+/g, "_")}_watermarked.zip`;
+  insertZipName = `${skillName.replace(/[^\w가-힣-]+/g, "_")}_watermarked${insertOutputExt}`;
 
   document.getElementById("i-fp").textContent = fingerprint;
   document.getElementById("i-count").innerHTML = `<b>${touched.length}</b>개 파일 수정됨`;
@@ -492,6 +549,28 @@ document.getElementById("v-input").onchange = (e) => {
   document.getElementById("v-status").textContent = ignored > 0
     ? `.git, node_modules 등 ${ignored}개 파일은 검사에서 제외했습니다.`
     : "";
+};
+
+document.getElementById("v-zip-drop").onclick = () => document.getElementById("v-zip-input").click();
+document.getElementById("v-zip-input").onchange = async (e) => {
+  const status = document.getElementById("v-status");
+  const file = e.target.files[0];
+  if (!file) return;
+  if (typeof JSZip === "undefined") {
+    status.textContent = "오류: 압축 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하고 새로고침해주세요.";
+    return;
+  }
+  status.textContent = "압축을 푸는 중...";
+  try {
+    verifyEntries = await collectFromZipFile(file);
+  } catch (err) {
+    status.textContent = "오류: .skill/.zip 파일을 여는 데 실패했습니다. 손상되지 않았는지 확인해주세요.";
+    return;
+  }
+  renderFileList(document.getElementById("v-filelist"), verifyEntries);
+  document.getElementById("v-run").disabled = verifyEntries.length === 0;
+  document.getElementById("v-results").innerHTML = "";
+  status.textContent = `${verifyEntries.length}개 파일을 압축 해제했습니다.`;
 };
 
 document.getElementById("v-run").onclick = async () => {
